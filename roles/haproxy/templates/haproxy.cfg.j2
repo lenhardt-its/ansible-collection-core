@@ -1,0 +1,218 @@
+{{ ansible_managed | comment }}
+
+global
+    log 127.0.0.1:514 local0
+    {% if haproxy_chroot != '' -%}
+        chroot {{ haproxy_chroot }}
+    {% endif -%}
+    pidfile /var/run/haproxy.pid
+    stats socket {{ haproxy_admin_socket_path }} mode {{ haproxy_admin_socket_mode }} level {{ haproxy_admin_socket_level }}
+    {% if haproxy_monitoring_socket -%}
+        stats socket {{ haproxy_monitoring_socket_path }} mode {{ haproxy_monitoring_socket_mode }} level {{ haproxy_monitoring_socket_level }} user {{ haproxy_monitoring_socket_user }} group {{ haproxy_monitoring_socket_group }}
+    {% endif -%}
+    stats timeout 10s
+    user {{ haproxy_user }}
+    group {{ haproxy_group }}
+    daemon
+
+    # Global Tuning
+    maxconn {{ haproxy_maxconn }}
+
+    # Default SSL material locations
+    ca-base /etc/pki/tls/certs
+    crt-base /etc/pki/tls/private/
+
+    # Default ciphers to use on SSL-enabled listening sockets.
+    # For more information, see ciphers(1SSL). This list is from:
+    #  https://hynek.me/articles/hardening-your-web-servers-ssl-ciphers/
+    ssl-default-bind-ciphers {{ haproxy_bind_ciphers }}
+    ssl-default-bind-ciphersuites {{ haproxy_bind_ciphersuites }}
+    ssl-default-bind-options {{ haproxy_bind_options }}
+
+    tune.ssl.default-dh-param {{ haproxy_defaultdhparam }}
+
+defaults
+    log     global
+    mode    {{ haproxy_default_mode }}
+    option  {{ haproxy_default_mode + 'log' }}
+    option  dontlognull
+    {% if haproxy_default_log_format is defined and haproxy_default_log_format|length > 0 -%}
+    log-format "{{ haproxy_default_log_format }}"
+    {% endif -%}
+    timeout connect {{ haproxy_timeout_connect }}
+    timeout client  {{ haproxy_timeout_client }}
+    timeout server  {{ haproxy_timeout_server }}
+    errorfile 400 /usr/share/haproxy/400.http
+    errorfile 403 /usr/share/haproxy/403.http
+    errorfile 408 /usr/share/haproxy/408.http
+    errorfile 500 /usr/share/haproxy/500.http
+    errorfile 502 /usr/share/haproxy/502.http
+    errorfile 503 /usr/share/haproxy/503.http
+    errorfile 504 /usr/share/haproxy/504.http
+
+{% if haproxy_webstats -%}
+
+listen stats
+    bind            {{ haproxy_webstats_ip }}:{{ haproxy_webstats_port }} {%- if haproxy_webstats_crt is not none %} ssl crt {{ haproxy_webstats_crt }} {% endif %}
+
+    mode            http
+    log             global
+    maxconn         {{ haproxy_webstats_maxconn }}
+
+    timeout client  100s
+    timeout server  100s
+    timeout connect 100s
+    timeout queue   100s
+
+    stats enable
+    stats admin {{ haproxy_webstats_admin_opt }}
+    stats hide-version
+    {% if haproxy_webstats_refreshtime != '' -%}
+        stats refresh {{ haproxy_webstats_refreshtime }}
+    {% endif -%}
+    {% if haproxy_webstats_scope is defined -%}
+    stats scope {{ haproxy_webstats_scope }}
+    {% endif -%}
+    stats realm {{ haproxy_webstats_realm }}
+    stats show-node
+    stats auth {{ haproxy_webstats_username }}:{{ haproxy_webstats_password }}
+    stats uri  {{ haproxy_webstats_uri }}
+{% endif %}
+
+{% if haproxy_webstats_exporter -%}
+
+listen statsexporter
+    bind            {{ haproxy_webstats_exporter_ip }}:{{ haproxy_webstats_exporter_port }}
+    mode            http
+    log             global
+    maxconn         {{ haproxy_webstats_exporter_maxconn }}
+    stats enable
+    stats hide-version
+    stats show-node
+    stats auth {{ haproxy_webstats_exporter_username }}:{{ haproxy_webstats_exporter_password }}
+    stats uri {{ haproxy_webstats_exporter_uri }}
+{% endif %}
+
+{% for userlist in haproxy_userlists_list %}
+userlist {{ userlist.name }}
+    {% for user in userlist.users -%}
+    user {{ user.username }} {{ 'insecure-password' if user.insecure_password is defined and user.insecure_password|bool else 'password' }} {{ user.password }}
+    {% endfor -%}
+{% endfor %}
+
+{% for frontend in haproxy_frontends_list %}
+frontend {{ frontend.name }}
+    {% if frontend.comment is defined -%}
+    # {{ frontend.comment }}
+    {% endif -%}
+
+    {% if frontend.bind is mapping -%}
+        {% if frontend.bind.version is not defined or frontend.bind.version == 4 %}bind {% if frontend.bind.address is defined %}{{ frontend.bind.address }}{% endif %}:{{ frontend.bind.port }}
+        {%- if frontend.bind.ssl is defined and frontend.bind.ssl %} ssl ca-file {{ frontend.bind.ca_file|default('/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem') }} crt-list {{ frontend.bind.ssl.crt_file }} alpn h2,http/1.1{% endif %}{% endif %}
+
+    {% if frontend.bind.version is not defined or frontend.bind.version == 6 %}bind {% if frontend.bind.address6 is defined %}{{ frontend.bind.address6 }}{% else %}[::]{% endif %}:{{ frontend.bind.port6|default(frontend.bind.port) }}
+        {%- if frontend.bind.ssl is defined and frontend.bind.ssl %} ssl ca-file {{ frontend.bind.ca_file|default('/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem') }} crt-list {{ frontend.bind.ssl.crt_file }} alpn h2,http/1.1{% endif %}{% endif %}
+
+    {% elif frontend.bind is iterable and frontend.bind is not string -%}
+    {% for bind_item in frontend.bind -%}
+        {% if bind_item.version is not defined or bind_item.version == 4 %}bind {% if bind_item.address is defined %}{{ bind_item.address }}{% endif %}:{{ bind_item.port }}
+        {%- if bind_item.ssl is defined and bind_item.ssl %} ssl ca-file {{ bind_item.ca_file|default('/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem') }} crt-list {{ frontend.bind.ssl.crt_file }} alpn h2,http/1.1{% endif %}{% endif %}
+
+    {% if bind_item.version is not defined or bind_item.version == 6 %}bind {% if bind_item.address6 is defined %}{{ bind_item.address6 }}{% else %}[::]{% endif %}:{{ bind_item.port6|default(bind_item.port) }}
+        {%- if bind_item.ssl is defined and bind_item.ssl %} ssl ca-file {{ bind_item.ca_file|default('/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem') }} crt-list {{ frontend.bind.ssl.crt_file }} alpn h2,http/1.1{% endif %}{% endif %}
+
+    {% endfor -%}
+    {% endif -%}
+
+    mode {%- if frontend.mode is not defined %} tcp {%- else %} {{ frontend.mode }} {%- endif %}
+
+    {% if frontend.maxconn is defined -%}
+    maxconn {{ frontend.maxconn }}
+    {% endif -%}
+
+    option {%- if frontend.mode is not defined %} tcplog {%- else %} {{ frontend.mode }}log {%- endif %}
+
+    {% if frontend.options is defined -%}
+    {% for option in frontend.options -%}
+        option {{ option }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% if frontend.timeouts is defined -%}
+    {% for option in frontend.timeouts -%}
+        timeout {{ option }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% if frontend.acl is defined -%}
+    {% for acl in frontend.acl -%}
+        acl {{ acl }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% if frontend.custom is defined -%}
+    {% for custom in frontend.custom -%}
+        {{ custom }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% if frontend.redirect is defined -%}
+    {% for redirect in frontend.redirect -%}
+        redirect {{ redirect }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% if frontend.use_backend is defined -%}
+    {% for use_backend in frontend.use_backend -%}
+        use_backend {{ use_backend }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% if frontend.default_backend is defined -%} default_backend {{ frontend.default_backend }} {%- endif %}
+
+
+{% endfor %}
+
+{% for backend in haproxy_backends_list -%}
+backend {{ backend.name }}
+    {% if backend.comment is defined -%}
+    # {{ backend.comment }}
+    {% endif -%}
+
+    mode {%- if backend.mode is not defined %} tcp {%- else %} {{ backend.mode }} {% endif %}
+
+    balance {%- if backend.balance is not defined %} roundrobin {%- else %} {{ backend.balance }} {% endif %}
+
+    {% if backend.cookie is defined -%}
+    cookie {{ backend.cookie.name }} {{ backend.cookie.mode }} {{ backend.cookie.options }}
+    {% endif -%}
+
+    {% if backend.options is defined -%}
+    {% for option in backend.options -%}
+        option {{ option }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% if backend.timeouts is defined -%}
+    {% for option in backend.timeouts -%}
+        timeout {{ option }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% if backend.custom is defined -%}
+    {% for custom in backend.custom -%}
+        {{ custom }}
+    {% endfor -%}
+    {% endif -%}
+
+    {% for backend_server in backend.backend_server_list -%}
+        server {{ backend_server.name }} {{ backend_server.address }}:{{ backend_server.port }}
+            {%- if backend_server.weight is defined %} weight {{ backend_server.weight }} {%- endif %}
+            {%- if backend_server.maxconn is defined %} maxconn {{ backend_server.maxconn }} {%- endif %}
+            {%- if backend.cookie is defined %} cookie {%- if backend_server.cookie is defined %} {{ backend_server.cookie }} {%- else %} {{ backend_server.name }} {%- endif %} {%- endif %}
+            {%- if ( backend_server.check is defined and backend_server.check|bool ) or ( backend.check_all_servers is defined and backend_server.check is undefined and backend.check_all_servers|bool ) %} check {%- endif %}
+            {%- if backend_server.custom is defined %} {{ backend_server.custom }} {%- endif %}
+
+    {% endfor %}
+
+{% endfor %}

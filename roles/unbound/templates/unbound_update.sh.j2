@@ -1,0 +1,70 @@
+#!/bin/sh
+
+# Variablen
+UNBOUND_CONF="/etc/unbound/unbound.block.conf"
+HOSTS_URL="{{ unbound_blocklist_url | default('https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts') }}"
+PROMETHEUS_PUSH_URL="{{ unbound_pushgateway_url | default('http://localhost:9091/metrics/job/unbound_update') }}"
+PROMETHEUS_SUCCESS_METRIC="unbound_update_success_total"
+PROMETHEUS_FAILURE_METRIC="unbound_update_failure_total"
+LABEL_INSTANCE="instance=\"$(hostname)\""
+LABEL_ENVIRONMENT="environment=\"production\""
+EMAIL_TO="{{ unbound_email_to | default('root@localhost') }}"
+EMAIL_FROM="{{ unbound_email_from | default('root@localhost') }}"
+SMTP_SERVER="{{ unbound_smtp_server | default('localhost') }}"
+USE_ERROR_HANDLING=true # Error-Handling aktivieren oder deaktivieren (true/false)
+SYSLOG_TAG="unbound_update_script" # Tag für Syslog
+
+
+# Ausschlussdomains (eine Domain pro Zeile)
+{% if unbound_exclude_domains | length > 0 %}
+{% for domain in unbound_exclude_domains %}
+EXCLUDE_DOMAINS="
+{{ domain }}
+{% endfor %}
+"
+{% endif %}
+
+
+# Funktion für Error-Handling
+error_handler() {
+    local error_message="$1"
+    if [ "$USE_ERROR_HANDLING" = true ]; then
+        local subject="Unbound Update Failed on $(hostname)"
+        echo "$error_message" | swaks --to "$EMAIL_TO" --from "$EMAIL_FROM" --server "$SMTP_SERVER" --header "Subject: $subject"
+        
+        # Prometheus Metrik für Fehlerfall
+        curl -X POST -s --data-binary "$PROMETHEUS_FAILURE_METRIC{${LABEL_INSTANCE},${LABEL_ENVIRONMENT}} 1" "$PROMETHEUS_PUSH_URL"
+        exit 1
+    else
+        # Schreibe Fehler in das Syslog
+        logger -t "$SYSLOG_TAG" "Error occurred, but error handling is disabled: $error_message"
+    fi
+}
+
+# Unbound-Konfigurationsdatei initialisieren
+if ! echo "server:" > "$UNBOUND_CONF"; then
+    error_handler "Failed to initialize unbound configuration."
+fi
+
+# Hosts-Datei herunterladen und verarbeiten (ohne direkten Vergleich mit Ausschlussdomains)
+curl -s "$HOSTS_URL" | grep ^0.0.0.0 - | sed 's/ #.*$//; s/^0.0.0.0 \(.*\)/local-zone: "\1" refuse/' >> "$UNBOUND_CONF" || error_handler "Failed to download or process hosts file."
+
+# Entfernen der Ausschlussdomains nach der Erstellung der Datei
+for domain in $EXCLUDE_DOMAINS; do
+    sed -i "/local-zone: \"$domain\" refuse/d" "$UNBOUND_CONF" || error_handler "Failed to remove excluded domain: $domain"
+done
+
+# Unbound neu starten
+if ! systemctl restart unbound; then
+    error_handler "Failed to restart Unbound service."
+fi
+
+# Prometheus Metrik für Erfolg
+curl -X POST -s --data-binary "$PROMETHEUS_SUCCESS_METRIC{${LABEL_INSTANCE},${LABEL_ENVIRONMENT}} 1" "$PROMETHEUS_PUSH_URL"
+
+# Erfolgreiche Ausführung in das Syslog schreiben, wenn Error-Handling deaktiviert ist
+if [ "$USE_ERROR_HANDLING" = false ]; then
+    logger -t "$SYSLOG_TAG" "Unbound update completed successfully."
+fi
+
+echo "Unbound update completed successfully."

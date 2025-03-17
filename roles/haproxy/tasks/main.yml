@@ -1,0 +1,117 @@
+---
+- name: Un-comment UDP syslog reception module
+  ansible.builtin.lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: '^#module\(load="imudp"\)'
+    line: 'module(load="imudp") # needs to be done just once'
+    state: present
+    backrefs: yes
+  notify: Restart rsyslog
+  tags: haproxy
+
+- name: Un-comment UDP syslog reception input
+  ansible.builtin.lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: '^#input\(type="imudp" port="514"\)'
+    line: 'input(type="imudp" port="514")'
+    state: present
+    backrefs: yes
+  notify: Restart rsyslog
+  tags: haproxy
+
+- name: Un-comment TCP syslog reception module
+  ansible.builtin.lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: '^#module\(load="imtcp"\)'
+    line: 'module(load="imtcp") # needs to be done just once'
+    state: present
+    backrefs: yes
+  notify: Restart rsyslog
+  tags: haproxy
+
+- name: Un-comment TCP syslog reception input
+  ansible.builtin.lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: '^#input\(type="imtcp" port="514"\)'
+    line: 'input(type="imtcp" port="514")'
+    state: present
+    backrefs: yes
+  notify: Restart rsyslog
+  tags: haproxy
+
+- name: Create /etc/rsyslog.d/haproxy.conf with HAProxy logging configuration
+  ansible.builtin.copy:
+    dest: /etc/rsyslog.d/haproxy.conf
+    content: |
+      # HAproxy Logging
+      local0.*             /var/log/haproxy.log
+      local0.notice        /var/log/haproxy_notifications.log
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart rsyslog
+  tags: haproxy
+
+- name: Ensure the syslog service is running and enabled
+  service:
+    name: rsyslog
+    enabled: yes
+    state: started
+  tags: haproxy
+
+- name: Install service
+  package:
+    name: haproxy
+    state: present
+  tags: haproxy
+
+# Check if SSL certificates exists in haproxy_crt_list
+- name: Check if SSL certificates exists in haproxy_crt_list
+  include_tasks: ssl_check_certlist.yml
+  with_items: "{{ haproxy_crt_list }}"
+  when: item is defined
+  tags:
+    - haproxy
+    - haproxy_ssl_check_certlist
+
+# Deploy HAProxy Cert-List file
+- name: Generate HAProxy cert-list file
+  template:
+    src: crt-list.txt.j2
+    dest: /etc/haproxy/crt-list.txt
+    owner: haproxy
+    group: haproxy
+    mode: 0644
+  notify: Reload HAProxy
+  tags:
+    - haproxy
+    - haproxy_config
+    - haproxy_certs
+
+# SSL
+- name: Static import of ssl
+  import_tasks: ssl.yml
+  when: haproxy_generate_self_signed_cert|bool
+  tags:
+    - haproxy
+    - haproxy_config
+
+- name: Configure service
+  template:
+    src: 'haproxy.cfg.j2'
+    dest: /etc/haproxy/haproxy.cfg
+    mode: 0644
+    owner: haproxy
+    group: haproxy
+    validate: haproxy -f %s -c -q
+  notify: Restart HAProxy
+  tags:
+    - haproxy
+    - haproxy_config
+
+- name: Start and enable service
+  service:
+    name: haproxy
+    state: started
+    enabled: true
+  tags: haproxy

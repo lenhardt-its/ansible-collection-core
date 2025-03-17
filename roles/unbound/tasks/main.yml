@@ -1,0 +1,87 @@
+---
+- name: install package
+  ansible.builtin.package:
+    name: "unbound"
+    state: present
+  environment: "{{ proxy_env }}"
+  become: true
+  tags: unbound
+
+- name: touch blockfile
+  ansible.builtin.file:
+    path: "/etc/unbound/unbound.block.conf"
+    state: touch
+    mode: 0644
+    owner: root
+    group: root
+  when: not unbound_use_blocklist
+  become: true
+  tags: unbound
+
+- name: Kopiere das Unbound Update Skript auf den Server
+  ansible.builtin.template:
+    src: "unbound_update.sh.j2"
+    dest: "/usr/local/bin/unbound_update.sh"
+    owner: root
+    group: root
+    mode: 0755
+  when: unbound_use_blocklist
+  become: true
+  tags: unbound
+
+- name: Generiere eine zufällige Minute für den Cronjob
+  set_fact:
+    random_minute: "{{ 2 + (30 | random(seed=inventory_hostname)) }}"
+  when: unbound_use_blocklist
+  become: true
+  tags: unbound
+
+- name: Lege den Cronjob für das Unbound Update zwischen 2:00 und 2:30 Uhr an
+  cron:
+    name: "Unbound Update"
+    minute: "{{ random_minute }}"
+    hour: 2
+    job: "/usr/local/bin/unbound_update.sh"
+    user: root
+    state: present
+    cron_file: unbound_update
+  when: unbound_use_blocklist
+  become: true
+  tags: unbound
+
+- name: download root.hints
+  ansible.builtin.get_url:
+    url: "https://www.internic.net/domain/named.root"
+    dest: "/etc/unbound/root.hints"
+    mode: 0644
+    owner: root
+    group: root
+  environment: "{{ proxy_env }}"
+  notify: restart unbound
+  retries: 5
+  delay: 2
+  check_mode: false
+  become: true
+  tags: unbound
+
+- name: configure service
+  ansible.builtin.template:
+    src: "unbound.conf.j2"
+    dest: "/etc/unbound/unbound.conf"
+    owner: root
+    group: root
+    mode: 0644
+    validate: "/usr/sbin/unbound-checkconf %s"
+  notify: restart unbound
+  become: true
+  tags:
+    - unbound
+    - unbound_config
+
+- name: start and enable service
+  ansible.builtin.service:
+    name: "unbound"
+    state: started
+    enabled: true
+  become: true
+  tags: unbound

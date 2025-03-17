@@ -1,0 +1,62 @@
+---
+proxy_env: {}
+unbound_use_blocklist: false
+unbound_blocklist_url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+unbound_pushgateway_url: "http://pushgateway:9091/metrics/job/unbound_update"
+unbound_exclude_domains: []
+  # - "localhost"
+  # - "localdomain"
+  # - "local"
+
+unbound_config:
+  server:
+    verbosity: 1
+    num-threads: "{{ ansible_processor_vcpus }}"
+    msg-cache-slabs: 8
+    rrset-cache-slabs: 8
+    infra-cache-slabs: 8
+    key-cache-slabs: 8
+    rrset-cache-size: 128m
+    msg-cache-size: 64m
+    so-rcvbuf: 8m
+    root-hints: "/etc/unbound/root.hints"
+    tls-cert-bundle: /etc/ssl/certs/ca-certificates.crt
+    log-queries: yes
+    log-replies: no
+    log-time-ascii: no
+    port: 53
+    prefetch: yes
+    extended-statistics: true
+    statistics-interval: 0
+    cache-min-ttl: 60
+    cache-max-ttl: 3600
+    hide-identity: yes
+    hide-version: yes
+    #hide-trustanchor: yes
+    harden-dnssec-stripped: yes
+    edns-buffer-size: 1280
+    do-daemonize: yes
+    #harden-glue: yes
+    aggressive-nsec: yes
+    use-caps-for-id: yes
+    use-systemd: no
+    interface:
+      - "0.0.0.0"
+      - "::0"
+    max-udp-size: 3072
+    access-control:
+      - 0.0.0.0/0 allow
+      - ::0/0 allow
+    private-address:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16
+      - fd00::/8
+      - fe80::/10
+  remote-control:
+    control-enable: true
+    control-port: 953
+
+unbound_config_forward_zone: {}
+unbound_config_stub_zone: {}

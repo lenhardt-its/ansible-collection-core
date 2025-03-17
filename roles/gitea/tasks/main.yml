@@ -1,0 +1,313 @@
+---
+- name: "Check gitea installed version"
+  ansible.builtin.shell: |
+    set -eo pipefail
+    {{ gitea_full_executable_path }} -v | cut -d' ' -f 3
+  args:
+    executable: /bin/bash
+  register: gitea_active_version
+  changed_when: false
+  failed_when: false
+  tags: gitea
+
+- name: Gather variables for each operating system
+  ansible.builtin.include_vars:
+    file: "{{ lookup('ansible.builtin.first_found', gitea_variables) }}"
+  tags: gitea
+
+- name: "Determine 'latest' version release"
+  when: gitea_version == "latest"
+  block:
+    - name: "Get latest gitea release metadata"
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/go-gitea/gitea/releases/latest
+        return_content: true
+      register: gitea_remote_metadata
+      become: false
+      when: not ansible_check_mode
+
+    - name: "Fail if running in check mode without versions set."
+      ansible.builtin.fail:
+        msg: |
+          "You are running this playbook in check mode:
+          Please set the Gitea version with the variable 'gitea_version', because the URI module cannot detect the latest version in this mode."
+      when: ansible_check_mode and (gitea_version == 'latest' or gitea_version == 'present')
+
+    - name: "Set fact latest gitea release"
+      ansible.builtin.set_fact:
+        gitea_remote_version: "{{ gitea_remote_metadata.json.tag_name[1:] }}"
+      when: not ansible_check_mode
+
+    - name: "Set gitea version target (latest)"
+      ansible.builtin.set_fact:
+        gitea_version_target: "{{ gitea_remote_version }}"
+      when: not ansible_check_mode
+  tags: gitea
+
+- name: "Set gitea version target {{ gitea_version }}"
+  ansible.builtin.set_fact:
+    gitea_version_target: "{{ gitea_version }}"
+  when: gitea_version != "latest"
+  tags: gitea
+
+- name: 'Assert that remote version is higher'
+  ansible.builtin.assert:
+    that:
+      - gitea_active_version is version(gitea_remote_version, 'lt')
+    fail_msg: ERROR - Remote version is lower then current version!
+  when: gitea_version == "latest" and gitea_active_version.stderr == "" | bool
+  tags: gitea
+
+- name: "Generate gitea download URL"
+  ansible.builtin.set_fact:
+    gitea_dl_url: "https://github.com/go-gitea/gitea/releases/download/v{{ gitea_version_target }}/gitea-{{ gitea_version_target }}-linux-{{ gitea_arch }}"
+  when: gitea_version == "latest"
+  tags: gitea
+
+- name: "Create Gitea Group"
+  become: true
+  ansible.builtin.group:
+    name: "{{ gitea_group }}"
+    system: true
+    state: "present"
+  tags: gitea
+
+- name: "Create Gitea user"
+  become: true
+  ansible.builtin.user:
+    name: "{{ gitea_user }}"
+    comment: "Gitea user"
+    group: "{{ gitea_group }}"
+    groups: "{{ gitea_groups | default(omit) }}"
+    home: "{{ gitea_user_home }}"
+    shell: "{{ gitea_shell }}"
+    system: true
+  tags: gitea
+
+- name: "Create config and data directory"
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gitea_user }}"
+    group: "{{ gitea_group }}"
+    mode: "u=rwX,g=rX"
+    recurse: true
+  loop:
+    - "{{ gitea_user_home }}"
+    - "{{ gitea_home }}"
+    - "{{ gitea_home }}/data"
+    - "{{ gitea_home }}/indexers"
+    - "{{ gitea_home }}/log"
+    - "{{ gitea_home }}/data/repos"
+    - "{{ gitea_home }}/data/tmp"
+    - "{{ gitea_home }}/data/tmp/uploads"
+    - "{{ gitea_home }}/data/tmp/package-upload"
+  tags: gitea
+
+- name: "Create config and data directory"
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gitea_user }}"
+    group: "{{ gitea_group }}"
+    mode: "u=rwX,g=rX,o=rX"
+    recurse: true
+  loop:
+    - "{{ gitea_configuration_path }}"
+  tags: gitea
+
+- name: Dependency block
+  block:
+    - name: Update apt cache
+      become: true
+      ansible.builtin.apt:
+        cache_valid_time: 3600
+        update_cache: true
+      register: _pre_update_apt_cache
+      until: _pre_update_apt_cache is succeeded
+      when:
+        - ansible_pkg_mgr == "apt"
+
+    - name: Install dependencies
+      become: true
+      ansible.builtin.package:
+        name: "{{ gitea_dependencies }}"
+        state: present
+      register: _install_dep_packages
+      until: _install_dep_packages is succeeded
+      retries: 5
+      delay: 2
+  tags: gitea
+
+- name: Install gitea block
+  when: (not gitea_version_check | bool) or (not ansible_check_mode and (gitea_active_version.stdout != gitea_version_target))
+  block:
+    - name: Download gitea archive
+      ansible.builtin.get_url:
+        url: "{{ gitea_dl_url }}.xz"
+        dest: "/tmp/{{ gitea_filename }}.xz"
+        checksum: "sha256:{{ gitea_dl_url }}.xz.sha256"
+        mode: 0640
+      register: _download_archive
+      become: false
+      until: _download_archive is succeeded
+      retries: 5
+      delay: 2
+
+    - name: Download gitea asc file
+      ansible.builtin.get_url:
+        url: "{{ gitea_dl_url }}.xz.asc"
+        dest: "/tmp/{{ gitea_filename }}.xz.asc"
+        mode: 0640
+      register: _download_asc
+      become: false
+      until: _download_asc is succeeded
+      retries: 5
+      delay: 2
+
+    - name: Check gitea gpg key
+      ansible.builtin.command: "gpg --list-keys 0x{{ gitea_gpg_key }}"
+      register: _gitea_gpg_key_status
+      changed_when: false
+      failed_when: _gitea_gpg_key_status.rc not in (0, 2)
+
+    - name: Print gpg key status on verbosity  # noqa: H500
+      ansible.builtin.debug:
+        msg: "{{ _gitea_gpg_key_status.stdout }}"
+        verbosity: 1
+
+    - name: Import gitea gpg key
+      ansible.builtin.command: "gpg --keyserver {{ gitea_gpg_server }} --keyserver-option '{{ gitea_gpg_keyserver_option }}' --recv {{ gitea_gpg_key }}"
+      register: _gitea_import_key
+      become: false
+      changed_when: '"imported: 1" in _gitea_import_key.stderr'
+      when: '_gitea_gpg_key_status.rc != 0 or "expired" in _gitea_gpg_key_status.stdout'
+
+    - name: Check archive signature
+      ansible.builtin.command: "gpg --verify /tmp/{{ gitea_filename }}.xz.asc /tmp/{{ gitea_filename }}.xz"
+      changed_when: false
+      become: false
+
+    - name: Unpack gitea binary
+      ansible.builtin.command:
+        cmd: "xz -k -d /tmp/{{ gitea_filename }}.xz"
+        creates: "/tmp/{{ gitea_filename }}"
+
+    - name: Propagate gitea binary
+      become: true
+      ansible.builtin.copy:
+        src: "/tmp/{{ gitea_filename }}"
+        remote_src: true
+        dest: "{{ gitea_full_executable_path }}"
+        mode: 0755
+        owner: root
+        group: root
+      notify: "systemctl restart gitea"
+  tags: gitea
+
+- name: Install fail2ban filter
+  become: true
+  ansible.builtin.template:
+    src: fail2ban/filter.conf.j2
+    dest: /etc/fail2ban/filter.d/gitea.conf
+    owner: root
+    group: root
+    mode: 0444
+  notify: "Systemctl restart fail2ban"
+  when: gitea_fail2ban_enabled
+  tags: gitea
+
+- name: Install fail2ban jail
+  become: true
+  ansible.builtin.template:
+    src: fail2ban/jail.conf.j2
+    dest: /etc/fail2ban/jail.d/gitea.conf
+    owner: root
+    group: root
+    mode: 0444
+  notify: "Systemctl restart fail2ban"
+  when: gitea_fail2ban_enabled
+  tags: gitea
+
+- name: "Configure gitea"
+  become: true
+  ansible.builtin.template:
+    src: 'templates/gitea.ini.j2'
+    dest: "{{ gitea_configuration_path }}/gitea.ini"
+    owner: "{{ gitea_user }}"
+    group: "{{ gitea_group }}"
+    mode: '0644'
+  notify: "systemctl restart gitea"
+  tags: gitea
+
+- name: "Setup systemd service"
+  become: true
+  ansible.builtin.template:
+    src: 'templates/gitea.service.j2'
+    dest: "{{ gitea_systemd_path }}/gitea.service"
+    owner: root
+    group: root
+    mode: 0644
+  register: _gitea_systemd_service
+  notify:
+    - "Reload systemd"
+    - "systemctl restart gitea"
+  tags: gitea
+
+- name: "Reload systemd"
+  become: true
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _gitea_systemd_service.changed
+  tags: gitea
+
+- name: "Service gitea"
+  become: true
+  ansible.builtin.systemd_service:
+    name: gitea
+    state: started
+    enabled: true
+  when: ansible_service_mgr == "systemd"
+  tags: gitea
+
+- name: Create Logrotate configuration for Gitea
+  copy:
+    dest: /etc/logrotate.d/gitea
+    content: |
+      /var/lib/gitea/log/*.log {
+          daily
+          missingok
+          rotate 7
+          compress
+          delaycompress
+          notifempty
+          create 640 git git
+          sharedscripts
+          postrotate
+              systemctl restart gitea
+          endscript
+      }
+    owner: root
+    group: root
+    mode: '0644'
+  tags: gitea
+
+- name: Verify Logrotate configuration
+  command: logrotate -d /etc/logrotate.d/gitea
+  register: logrotate_output
+  tags: gitea
+
+- name: Debug Logrotate output
+  debug:
+    msg: "{{ logrotate_output.stdout }}"
+  tags: gitea
+
+- name: Optionally create local Users on git instance
+  ansible.builtin.include_tasks:
+    file: 'local_git_users.yml'
+  when: gitea_users | length > 0
+  tags:
+    - gitea
+    - gitea_users

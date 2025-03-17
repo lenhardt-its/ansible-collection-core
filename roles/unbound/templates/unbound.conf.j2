@@ -1,0 +1,50 @@
+{{ ansible_managed | comment }}
+
+{% for section, configs in unbound_config.items() %}
+{{ section }}:
+{%   for key, value in configs.items() %}
+{%     if key in ['local-data', 'local-data-ptr'] %}
+{%       for v in value %}
+  {{ key }}: "{{ v }}"
+{%       endfor %}
+{%     endif %}
+{%     if key not in ['local-data', 'local-data-ptr'] %}
+{%       if value is sameas true %}
+  {{ key }}: yes
+{%       elif value is sameas false %}
+  {{ key }}: no
+{%       elif value is string %}
+  {{ key }}: {{ value|string }}
+{%       elif value is number %}
+  {{ key }}: {{ value|int }}
+{%       elif value is iterable %}
+{%         for v in value %}
+  {{ key }}: {{ v }}
+{%         endfor %}
+{%       else %}
+  {{ key }}: {{ value }}
+{%       endif %}
+{%     endif %}
+{%   endfor %}
+
+{% endfor %}
+{% for forward_zone in unbound_config_forward_zone %}
+forward-zone:
+  name: "{{ forward_zone.name }}"
+{% for server in forward_zone.servers %}
+  forward-addr: {{ server }}
+{% endfor %}
+
+{% endfor %}
+{% for stub_zone in unbound_config_stub_zone %}
+stub-zone:
+  name: "{{ stub_zone.name }}"
+{% for server in stub_zone.servers %}
+  stub-addr: {{ server }}
+{% endfor %}
+
+{% endfor %}
+
+{% if unbound_use_blocklist %}
+  include: "/etc/unbound/unbound.block.conf"
+{% endif %}

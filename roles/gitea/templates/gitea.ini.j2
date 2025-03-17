@@ -1,0 +1,33 @@
+; this file is the configuration of your local Gitea instance
+
+;
+; This file overwrites the default values from Gitea.
+; undefined variables will use the default value from Gitea.
+; Cheat Sheet: https://docs.gitea.com/next/administration/config-cheat-sheet/
+;
+
+{% for section, configs in gitea_config.items() %}
+{% if configs is mapping %}
+
+[{{ section | lower }}]
+{%   for key, value in configs.items() %}
+{%     if value is sameas true %}
+{{ key | upper }} = true
+{%     elif value is sameas false %}
+{{ key | upper }} = false
+{%     elif value is string %}
+{{ key | upper }} = {{ value }}
+{%     elif value is number %}
+{{ key | upper }} = {{ value }}
+{%     elif value is iterable and value is not string %}
+{%       for v in value %}
+{{ key | upper }} = {{ v }}
+{%       endfor %}
+{%     else %}
+{{ key | upper }} = {{ value }}
+{%     endif %}
+{%   endfor %}
+{% else %}
+{{ section | upper }} = {{ configs }}
+{% endif %}
+{% endfor %}

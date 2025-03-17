@@ -1,0 +1,25 @@
+---
+gitea_go_arch_map:
+  i386: '386'
+  x86_64: 'amd64'
+  aarch64: 'arm64'
+  armv7l: 'arm-6'
+  armv6l: 'arm-6'
+  armv5l: 'arm-5'
+
+gitea_arch: "{{ gitea_go_arch_map[ansible_architecture] | default(ansible_architecture) }}"
+
+# set filenames for gitea
+gitea_full_executable_path: "{{ gitea_executable_path }}"
+gitea_filename: "gitea-{{ gitea_version_target }}.linux-{{ gitea_arch }}"
+
+gitea_variables:
+  files:
+    - "{{ ansible_distribution | lower }}-{{ ansible_distribution_version | lower }}.yml"
+    - "{{ ansible_distribution | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
+    - "{{ ansible_os_family | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
+    - "{{ ansible_distribution | lower }}.yml"
+    - "{{ ansible_os_family | lower }}.yml"
+    - 'os_fallback_defaults.yml'
+  paths:
+    - 'vars'
