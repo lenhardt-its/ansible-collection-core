@@ -1,0 +1,59 @@
+---
+- name: "Install packages"
+  ansible.builtin.package:
+    name: rsyslog
+    state: present
+  become: true
+  tags: rsyslog
+
+- name: "Start and Enable service"
+  ansible.builtin.service:
+    name: rsyslog
+    enabled: true
+    state: started
+  become: true
+  tags: rsyslog
+
+- name: "Un-comment UDP syslog reception module"
+  ansible.builtin.lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: '^#module\(load="imudp"\)'
+    line: 'module(load="imudp") # needs to be done just once'
+    state: present
+    backrefs: true
+  notify: Restart rsyslog
+  become: true
+  tags: rsyslog
+
+- name: "Un-comment UDP syslog reception input"
+  ansible.builtin.lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: '^#input\(type="imudp" port="514"\)'
+    line: 'input(type="imudp" port="514")'
+    state: present
+    backrefs: true
+  notify: Restart rsyslog
+  become: true
+  tags: rsyslog
+
+- name: "Un-comment TCP syslog reception module"
+  ansible.builtin.lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: '^#module\(load="imtcp"\)'
+    line: 'module(load="imtcp") # needs to be done just once'
+    state: present
+    backrefs: true
+  notify: Restart rsyslog
+  become: true
+  tags: rsyslog
+
+- name: "Un-comment TCP syslog reception input"
+  ansible.builtin.lineinfile:
+    path: /etc/rsyslog.conf
+    regexp: '^#input\(type="imtcp" port="514"\)'
+    line: 'input(type="imtcp" port="514")'
+    state: present
+    backrefs: true
+  notify: Restart rsyslog
+  become: true
+  tags: rsyslog

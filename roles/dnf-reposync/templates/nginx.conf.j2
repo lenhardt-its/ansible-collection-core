@@ -1,0 +1,14 @@
+{{ ansible_managed | comment }}
+
+server {
+    listen 80;
+    server_name {{ dnf_reposync_url}};
+
+    access_log /var/log/nginx/local_repo_access.log;
+    error_log /var/log/nginx/local_repo_error.log;
+
+    location / {
+        root {{ dnf_reposync_dir }};
+        autoindex on;
+    }
+}

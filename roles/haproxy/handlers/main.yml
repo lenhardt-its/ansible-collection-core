@@ -1,18 +1,21 @@
 ---
-- name: Restart HAProxy
-  service:
+- name: Restart haproxy
+  ansible.builtin.service:
     name: haproxy
     state: restarted
+  become: true
   tags: haproxy
 
-- name: Reload HAProxy
-  service:
+- name: Reload haproxy
+  ansible.builtin.service:
     name: haproxy
     state: reloaded
+  become: true
   tags: haproxy
 
 - name: Restart rsyslog
-  service:
+  ansible.builtin.service:
     name: rsyslog
     state: restarted
+  become: true
   tags: haproxy

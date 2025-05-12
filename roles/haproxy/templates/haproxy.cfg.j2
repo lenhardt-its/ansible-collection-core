@@ -1,18 +1,13 @@
 {{ ansible_managed | comment }}
 
 global
-    log 127.0.0.1:514 local0
-    {% if haproxy_chroot != '' -%}
-        chroot {{ haproxy_chroot }}
-    {% endif -%}
+    log 127.0.0.1 local2
+    chroot /var/lib/haproxy
     pidfile /var/run/haproxy.pid
-    stats socket {{ haproxy_admin_socket_path }} mode {{ haproxy_admin_socket_mode }} level {{ haproxy_admin_socket_level }}
-    {% if haproxy_monitoring_socket -%}
-        stats socket {{ haproxy_monitoring_socket_path }} mode {{ haproxy_monitoring_socket_mode }} level {{ haproxy_monitoring_socket_level }} user {{ haproxy_monitoring_socket_user }} group {{ haproxy_monitoring_socket_group }}
-    {% endif -%}
-    stats timeout 10s
-    user {{ haproxy_user }}
-    group {{ haproxy_group }}
+    stats socket /var/lib/haproxy/stats mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
     daemon
 
     # Global Tuning
@@ -28,7 +23,7 @@ global
     ssl-default-bind-ciphers {{ haproxy_bind_ciphers }}
     ssl-default-bind-ciphersuites {{ haproxy_bind_ciphersuites }}
     ssl-default-bind-options {{ haproxy_bind_options }}
-
+    ssl-default-server-ciphers PROFILE=SYSTEM
     tune.ssl.default-dh-param {{ haproxy_defaultdhparam }}
 
 defaults
@@ -36,9 +31,9 @@ defaults
     mode    {{ haproxy_default_mode }}
     option  {{ haproxy_default_mode + 'log' }}
     option  dontlognull
-    {% if haproxy_default_log_format is defined and haproxy_default_log_format|length > 0 -%}
+{% if haproxy_default_log_format is defined and haproxy_default_log_format|length > 0 -%}
     log-format "{{ haproxy_default_log_format }}"
-    {% endif -%}
+{% endif -%}
     timeout connect {{ haproxy_timeout_connect }}
     timeout client  {{ haproxy_timeout_client }}
     timeout server  {{ haproxy_timeout_server }}
@@ -50,55 +45,30 @@ defaults
     errorfile 503 /usr/share/haproxy/503.http
     errorfile 504 /usr/share/haproxy/504.http
 
-{% if haproxy_webstats -%}
-
-listen stats
-    bind            {{ haproxy_webstats_ip }}:{{ haproxy_webstats_port }} {%- if haproxy_webstats_crt is not none %} ssl crt {{ haproxy_webstats_crt }} {% endif %}
-
-    mode            http
-    log             global
-    maxconn         {{ haproxy_webstats_maxconn }}
-
-    timeout client  100s
-    timeout server  100s
-    timeout connect 100s
-    timeout queue   100s
-
-    stats enable
-    stats admin {{ haproxy_webstats_admin_opt }}
-    stats hide-version
-    {% if haproxy_webstats_refreshtime != '' -%}
-        stats refresh {{ haproxy_webstats_refreshtime }}
-    {% endif -%}
-    {% if haproxy_webstats_scope is defined -%}
-    stats scope {{ haproxy_webstats_scope }}
-    {% endif -%}
-    stats realm {{ haproxy_webstats_realm }}
-    stats show-node
-    stats auth {{ haproxy_webstats_username }}:{{ haproxy_webstats_password }}
-    stats uri  {{ haproxy_webstats_uri }}
-{% endif %}
-
-{% if haproxy_webstats_exporter -%}
-
-listen statsexporter
-    bind            {{ haproxy_webstats_exporter_ip }}:{{ haproxy_webstats_exporter_port }}
-    mode            http
-    log             global
-    maxconn         {{ haproxy_webstats_exporter_maxconn }}
-    stats enable
-    stats hide-version
-    stats show-node
-    stats auth {{ haproxy_webstats_exporter_username }}:{{ haproxy_webstats_exporter_password }}
-    stats uri {{ haproxy_webstats_exporter_uri }}
-{% endif %}
-
 {% for userlist in haproxy_userlists_list %}
 userlist {{ userlist.name }}
-    {% for user in userlist.users -%}
+{% for user in userlist.users -%}
     user {{ user.username }} {{ 'insecure-password' if user.insecure_password is defined and user.insecure_password|bool else 'password' }} {{ user.password }}
-    {% endfor -%}
+{% endfor -%}
 {% endfor %}
+
+# Status Webinterface
+listen stats
+    bind *:{{ haproxy_stats_port }}
+    mode http
+    stats enable
+    stats uri {{ haproxy_stats_uri }}
+    stats hide-version
+    stats refresh 10s
+    stats realm Haproxy\ Statistics
+    stats auth {{ haproxy_stats_user }}:{{ haproxy_stats_password }}
+    stats admin if TRUE
+
+# Prometheus-Metriken (ab HAProxy 2.0+)
+frontend prometheus_exporter
+    bind *:{{ haproxy_prometheus_exporter_port }}
+    mode http
+    http-request use-service prometheus-exporter if { path /metrics }
 
 {% for frontend in haproxy_frontends_list %}
 frontend {{ frontend.name }}

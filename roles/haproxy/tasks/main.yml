@@ -1,117 +1,86 @@
 ---
-- name: Un-comment UDP syslog reception module
-  ansible.builtin.lineinfile:
-    path: /etc/rsyslog.conf
-    regexp: '^#module\(load="imudp"\)'
-    line: 'module(load="imudp") # needs to be done just once'
+- name: Install packages
+  ansible.builtin.package:
+    name: "{{ item }}"
     state: present
-    backrefs: yes
-  notify: Restart rsyslog
-  tags: haproxy
+  loop:
+    - haproxy
+    - rsyslog
+  become: true
+  tags:
+    - haproxy
+    - rsyslog
 
-- name: Un-comment UDP syslog reception input
-  ansible.builtin.lineinfile:
-    path: /etc/rsyslog.conf
-    regexp: '^#input\(type="imudp" port="514"\)'
-    line: 'input(type="imudp" port="514")'
-    state: present
-    backrefs: yes
-  notify: Restart rsyslog
-  tags: haproxy
+- name: Configure service
+  ansible.builtin.template:
+    src: 'haproxy.cfg.j2'
+    dest: /etc/haproxy/haproxy.cfg
+    mode: '0644'
+    owner: haproxy
+    group: haproxy
+    validate: haproxy -f %s -c -q
+  notify: Restart haproxy
+  become: true
+  tags:
+    - haproxy
+    - rsyslog
 
-- name: Un-comment TCP syslog reception module
-  ansible.builtin.lineinfile:
-    path: /etc/rsyslog.conf
-    regexp: '^#module\(load="imtcp"\)'
-    line: 'module(load="imtcp") # needs to be done just once'
-    state: present
-    backrefs: yes
-  notify: Restart rsyslog
-  tags: haproxy
-
-- name: Un-comment TCP syslog reception input
-  ansible.builtin.lineinfile:
-    path: /etc/rsyslog.conf
-    regexp: '^#input\(type="imtcp" port="514"\)'
-    line: 'input(type="imtcp" port="514")'
-    state: present
-    backrefs: yes
-  notify: Restart rsyslog
-  tags: haproxy
-
-- name: Create /etc/rsyslog.d/haproxy.conf with HAProxy logging configuration
+- name: Create rsyslog logging configuration
   ansible.builtin.copy:
     dest: /etc/rsyslog.d/haproxy.conf
     content: |
       # HAproxy Logging
-      local0.*             /var/log/haproxy.log
-      local0.notice        /var/log/haproxy_notifications.log
+      local2.*           /var/log/haproxy.log
     owner: root
     group: root
     mode: '0644'
   notify: Restart rsyslog
-  tags: haproxy
+  become: true
+  tags:
+    - haproxy
+    - rsyslog
 
-- name: Ensure the syslog service is running and enabled
-  service:
-    name: rsyslog
-    enabled: yes
-    state: started
-  tags: haproxy
-
-- name: Install service
-  package:
-    name: haproxy
+- name: Configure rsyslog to accept network log events
+  ansible.builtin.lineinfile:
+    path: /etc/sysconfig/rsyslog
+    regexp: '^SYSLOGD_OPTIONS'
+    line: 'SYSLOGD_OPTIONS="-r -m 0"'
     state: present
-  tags: haproxy
-
-# Check if SSL certificates exists in haproxy_crt_list
-- name: Check if SSL certificates exists in haproxy_crt_list
-  include_tasks: ssl_check_certlist.yml
-  with_items: "{{ haproxy_crt_list }}"
-  when: item is defined
+  notify: Restart rsyslog
+  become: true
   tags:
     - haproxy
-    - haproxy_ssl_check_certlist
+    - rsyslog
 
-# Deploy HAProxy Cert-List file
-- name: Generate HAProxy cert-list file
-  template:
-    src: crt-list.txt.j2
-    dest: /etc/haproxy/crt-list.txt
-    owner: haproxy
-    group: haproxy
-    mode: 0644
-  notify: Reload HAProxy
+- name: Configure SELinux for HAProxy
+  ansible.builtin.seport:
+    ports: "{{ item }}"
+    proto: tcp
+    setype: haproxy_port_t
+    state: present
+  loop: "{{ haproxy_firewall_ports }}"
+  when: ansible_selinux.status == 'enabled'
+  become: true
   tags:
     - haproxy
-    - haproxy_config
-    - haproxy_certs
-
-# SSL
-- name: Static import of ssl
-  import_tasks: ssl.yml
-  when: haproxy_generate_self_signed_cert|bool
-  tags:
-    - haproxy
-    - haproxy_config
-
-- name: Configure service
-  template:
-    src: 'haproxy.cfg.j2'
-    dest: /etc/haproxy/haproxy.cfg
-    mode: 0644
-    owner: haproxy
-    group: haproxy
-    validate: haproxy -f %s -c -q
-  notify: Restart HAProxy
-  tags:
-    - haproxy
-    - haproxy_config
+    - rsyslog
 
 - name: Start and enable service
-  service:
-    name: haproxy
-    state: started
+  ansible.builtin.service:
+    name: "{{ item }}"
     enabled: true
-  tags: haproxy
+    state: started
+  loop:
+    - haproxy
+    - rsyslog
+  become: true
+  tags:
+    - haproxy
+    - rsyslog
+
+- name: Flush all handlers
+  ansible.builtin.meta: flush_handlers
+  become: true
+  tags:
+    - haproxy
+    - rsyslog

@@ -1,0 +1,68 @@
+---
+- name: Ensure packages are installed
+  ansible.builtin.package:
+    name:
+      - dnf-utils
+      - createrepo_c
+      - nginx
+    state: present
+  become: true
+  tags: dnf_reposync
+
+- name: Create repo folder
+  ansible.builtin.file:
+    path: "{{ dnf_reposync_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  tags: dnf_reposync
+
+- name: Create Sync script
+  ansible.builtin.template:
+    src: sync_repos.sh.j2
+    dest: /usr/local/bin/{{ dnf_reposync_script }}.sh
+    mode: '0755'
+    owner: root
+    group: root
+  become: true
+  tags: dnf_reposync
+
+- name: Create files from template
+  ansible.builtin.template:
+    src: "{{ item.tmpl }}.j2"
+    dest: "/etc/systemd/system/{{ item.path }}"
+    mode: '0644'
+    owner: root
+    group: root
+  loop:
+    - tmpl: sync_repos.service
+      path: /etc/systemd/system/sync_repos.service
+    - tmpl: sync_repos.timer
+      path: /etc/systemd/system/sync_repos.timer
+    - tmpl: nginx.conf
+      path: /etc/nginx/conf.d/reposync.conf
+    - tmpl: sync_repos.sh
+      path: "/usr/local/bin/{{ dnf_reposync_script }}.sh"
+  become: true
+  tags: dnf_reposync
+
+- name: Start and enable the timer
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - sync_repos.timer
+    - nginx.service
+  become: true
+  tags: dnf_reposync
+
+- name: Restart nginx.service
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+  become: true
+  tags: dnf_reposync

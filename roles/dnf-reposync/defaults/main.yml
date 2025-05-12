@@ -1,0 +1,10 @@
+---
+dnf_reposync_dir: "/srv/repos"
+dnf_reposync_script: "sync_repos.sh"
+dnf_reposync_url: "repos.core.lenhardt.cc"
+dnf_repos:
+  - BaseOS
+  - AppStream
+  - Extras
+  - Epel
+  - CRB

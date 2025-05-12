@@ -1,3 +1,3 @@
-# Ansible Collection - lenhardt_its.core
+# Ansible Collection - inframonks.core
 
 Documentation for the collection.

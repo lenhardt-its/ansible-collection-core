@@ -1,0 +1,50 @@
+{{ ansible_managed | comment }}
+
+global_defs {
+    router_id {{ keepalived_config.global_defs.router_id }}
+    enable_script_security
+}
+
+{% if keepalived_config.vrrp_scripts is defined %}
+{% for script in keepalived_config.vrrp_scripts %}
+vrrp_script {{ script.name }} {
+    script "{{ script.script }}"
+    interval {{ script.interval | default(2) }}
+    weight {{ script.weight | default(-5) }}
+    fall {{ script.fall | default(2) }}
+    rise {{ script.rise | default(2) }}
+}
+{% endfor %}
+{% endif %}
+
+{% for instance in keepalived_config.vrrp_instances %}
+vrrp_instance {{ instance.name }} {
+    state {{ instance.state | default('BACKUP') }}
+    interface {{ instance.interface | default(ansible_default_ipv4.interface) }}
+    virtual_router_id {{ instance.virtual_router_id }}
+    priority {{ instance.priority }}
+    advert_int {{ instance.advert_int | default(1) }}
+    authentication {
+        auth_type {{ instance.authentication.auth_type | default('PASS') }}
+        auth_pass {{ instance.authentication.auth_pass | default('t0t4lGeh31m') }}
+    }
+    unicast_src_ip {{ instance.unicast_src_ip }}
+    unicast_peer {
+{% for peer in instance.unicast_peer %}
+        {{ peer }}
+{% endfor %}
+    }
+    virtual_ipaddress {
+{% for vip in instance.virtual_ipaddress %}
+        {{ vip }}
+{% endfor %}
+    }
+    track_script {
+{% if instance.track_script is defined %}
+{% for ts in instance.track_script %}
+        {{ ts }}
+{% endfor %}
+{% endif %}
+    }
+}
+{% endfor %}

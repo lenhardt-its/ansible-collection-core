@@ -2,8 +2,6 @@
 
 An Ansible Role that install and configure HAProxy.
 
-We want this role as simple, configurable and interoperable as possible.
-
 ## Role Variables
 
 Available variables with defaults values are defined in `defaults/main.yml`.

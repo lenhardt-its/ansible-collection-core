@@ -1,60 +1,23 @@
 ---
 # Defaults
-haproxy_default_mode:    tcp                            # Default mode
-haproxy_default_log_format: ''                          # Default custom log format
-haproxy_timeout_connect: 6000                           # Timeout connect
-haproxy_timeout_client:  60000                          # Timeout client
-haproxy_timeout_server:  60000                          # Timeout server
-haproxy_defaultdhparam:  2048                           # Default ssl dh parameter
-
-# Tuning
-haproxy_maxconn: 1024                                   # Global maximal number of concurrent connections that will be sent to this server (Default is 0)
-
-# User & Group for HAProxy
-haproxy_user:  haproxy
-haproxy_group: haproxy
-
+haproxy_default_mode: tcp
+haproxy_default_log_format: ''
+haproxy_timeout_connect: 6000
+haproxy_timeout_client: 60000
+haproxy_timeout_server: 60000
+haproxy_defaultdhparam: 2048
+haproxy_maxconn: 2048
 # Security
-haproxy_chroot: '/var/lib/haproxy'
 haproxy_bind_ciphers: 'ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS:!CBC:!CCM'
 haproxy_bind_options: 'no-sslv3 no-tlsv11 no-tlsv10'
 haproxy_bind_ciphersuites: 'TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256'
-
-# Admin socket
-haproxy_admin_socket_path: /var/lib/haproxy/stats       # Admin socket path
-haproxy_admin_socket_mode: 660                          # Admin socket mode
-haproxy_admin_socket_level: admin                       # Admin socket level
-
-# Monitoring socket
-haproxy_monitoring_socket: false                        # Set fo false in order to disable monitoring socket
-haproxy_monitoring_socket_path: /run/haproxy/monitoring.sock # Monitoring socket path
-haproxy_monitoring_socket_mode: 660                     # Monitoring socket mode
-haproxy_monitoring_socket_level: user                   # Monitoring socket level
-haproxy_monitoring_socket_user: root                    # Monitoring socket user
-haproxy_monitoring_socket_group: monitoring             # Monitoring socket group
-
 # Web Stats
-haproxy_webstats: true                                  # Set to true in order to enable webstats. (default is false)
-haproxy_webstats_ip: '0.0.0.0'                          # Listening IP for the webstats interface
-haproxy_webstats_port: '8080'                           # Listening Port for the webstats interface
-haproxy_webstats_maxconn: '10'                          # Maximum per-process number of concurrent connections
-haproxy_webstats_refreshtime: '30s'                     # Enable automatic refresh with a delay
-haproxy_webstats_realm: 'HAProxy\ Statistics'           # Authentication Realm
-haproxy_webstats_username: 'haproxy'                    # Authentication Username
-haproxy_webstats_password: 'haproxy'                    # Authentication Password
-haproxy_webstats_uri: '/haproxy?stats'                  # Authentication URL
-haproxy_webstats_admin_opt: 'if FALSE'                  # Manage admin level if/unless a condition is matched (ex: if TRUE / if LOCALHOST)
-haproxy_webstats_crt: '/etc/haproxy/ssl/selfsigned.pem' # Disable SSL by providing 'null' or use an absolute path for a custom certificate combined file (cert & key)
-# haproxy_webstats_scope: '.'                           # Scope for this webstat interface
-
-# Web Stats for exporter
-haproxy_webstats_exporter: true                         # Set to false in order to disable webstats for local node exporter. (default is true)
-haproxy_webstats_exporter_ip: '127.0.0.1'               # Listening IP for the webstats interface
-haproxy_webstats_exporter_port: '8091'                  # Listening Port for the webstats interface
-haproxy_webstats_exporter_maxconn: '2'                  # Maximum per-process number of concurrent connections
-haproxy_webstats_exporter_username: 'haproxy'           # Authentication Username
-haproxy_webstats_exporter_password: 'haproxy'           # Authentication Password
-haproxy_webstats_exporter_uri: '/stats'                 # Authentication URL
+haproxy_stats_port: 8404
+haproxy_stats_user: 'admin'
+haproxy_stats_password: 'admin'
+haproxy_stats_uri: '/stats'
+# Prometheus Exporter
+haproxy_prometheus_exporter_port: 9101
 
 # Authentication
 haproxy_userlists_list: []
@@ -64,12 +27,3 @@ haproxy_frontends_list: []
 
 # Backends
 haproxy_backends_list: []
-
-# Certificates list
-haproxy_crt_list_default_wildcard: true                 # Set to false in order to disable selfsigned certificate usage with wildcard * as SNI filter
-haproxy_generate_self_signed_cert: true
-haproxy_crt_list:
-  - { path: '/etc/haproxy/ssl/selfsigned.pem'}
-  # - { snifilter: 'app.example.com', path: '/etc/haproxy/ssl/app.example.com.pem' }
-  # - { snifilter: 'www.example.com example.com', path: '/etc/haproxy/ssl/example.com.pem' }
-  # - { snifilter: '*.sub.example.com', path: '/etc/haproxy/ssl/wildcard-sub.example.com.pem' }

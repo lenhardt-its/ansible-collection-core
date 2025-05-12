@@ -1,0 +1,28 @@
+---
+keepalived_config:
+  global_defs:
+    router_id: "{{ inventory_hostname }}"
+  vrrp_scripts:
+    - name: chk_haproxy
+      script: "/usr/bin/pgrep haproxy"
+      interval: 2
+      weight: -5
+      fall: 2
+      rise: 2
+  vrrp_instances:
+    - name: loadbalancer
+      state: BACKUP
+      interface: enp6s19
+      virtual_router_id: 52
+      priority: 99
+      advert_int: 1
+      authentication:
+        auth_type: PASS
+        auth_pass: geheim12321451
+      unicast_src_ip: 192.168.1.1
+      unicast_peer:
+        - 192.168.1.2
+      virtual_ipaddress:
+        - 10.30.30.20/32 dev enp6s18 label enp6s18:vip
+      track_script:
+        - chk_haproxy

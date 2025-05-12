@@ -1,0 +1,14 @@
+#!/bin/bash
+{{ ansible_managed | comment }}
+
+declare -A REPOS=(
+{% for repo in repos %}
+    [{{ repo | lower }}]={{ repo }}
+{% endfor %}
+)
+
+for REPO_ID in "${!REPOS[@]}"; do
+  DIR=${REPOS[$REPO_ID]}
+  reposync --repo=$REPO_ID --download-path="{{ dnf_reposync_dir }}/rocky/9.5/$DIR/x86_64/os" --download-metadata
+  createrepo_c "{{ dnf_reposync_dir }}/rocky/9.5/$DIR/x86_64/os"
+done
